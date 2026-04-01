@@ -1,0 +1,330 @@
+// =========================================================
+// Taco Bell Guatemala WMS — Prisma Schema
+// PostgreSQL on Supabase
+// =========================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------
+// 0. WAREHOUSES (Multi-almacén)
+// ---------------------------------------------------------
+
+model Warehouse {
+  id          String   @id @default(uuid())
+  codigo      String   @unique  // CEDIS-GT, CEDIS-MX, etc.
+  nombre      String
+  direccion   String?
+  ciudad      String?
+  activo      Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  locations   Location[]
+  movements   InventoryMovement[]
+}
+
+// ---------------------------------------------------------
+// 1. MASTER DATA (Entities from Dynamics)
+// ---------------------------------------------------------
+
+model SkuMaster {
+  id                    String   @id @default(uuid())
+  codigoDynamics        String   @unique
+  descripcion           String
+  categoria             String
+  uomBase               String
+  requiereLote          Boolean  @default(true)
+  requiereVencimiento   Boolean  @default(true)
+  temperaturaRequerida  String   // AMBIENTE, REFRIGERADO, CONGELADO
+  familiaCalidad        String?
+  activo                Boolean  @default(true)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  lotes                 LotInventory[]
+  movimientos           InventoryMovement[]
+  lineasSalida          OutboundOrderLine[]
+  trazabilidad          TraceabilityLink[]
+}
+
+model Restaurante {
+  id          String   @id @default(uuid())
+  nombre      String
+  zona        String
+  direccion   String?
+  activo      Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ordenes     OutboundOrder[]
+}
+
+// ---------------------------------------------------------
+// 2. INVENTORY & LOCATIONS
+// ---------------------------------------------------------
+
+model Location {
+  id               String   @id @default(uuid())
+  codigo           String   @unique
+  almacenId        String
+  zona             String
+  pasillo          String
+  rack             String
+  nivel            String
+  posicion         String
+  tipoUbicacion    String   // RECIBO, PICKING, RESERVA, STAGING, CUARENTENA, QUIMICOS
+  temperatura      String   // AMBIENTE, REFRIGERADO, CONGELADO
+  capacidad        Int      @default(100)
+  ocupacion        Int      @default(0)
+  estado           String   @default("LIBRE") // LIBRE, OCUPADO, BLOQUEADO
+  reglasRestriccion String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  almacen          Warehouse @relation(fields: [almacenId], references: [id])
+  lotes            LotInventory[]
+  movimientosDesde InventoryMovement[] @relation("FromLocation")
+  movimientosHacia InventoryMovement[] @relation("ToLocation")
+}
+
+model LotInventory {
+  id                String   @id @default(uuid())
+  skuId             String
+  lote              String
+  fechaVencimiento  DateTime?
+  fechaProduccion   DateTime?
+  proveedorId       String?
+  proveedorNombre   String?
+  estadoCalidad     String   // LIBERADO, CUARENTENA, BLOQUEADO
+  cantidadDisponible Float     @default(0)
+  cantidadReservada  Float     @default(0)
+  cantidadBloqueada  Float     @default(0)
+  ubicacionId       String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  sku               SkuMaster @relation(fields: [skuId], references: [id])
+  ubicacion         Location?  @relation(fields: [ubicacionId], references: [id])
+  hojasManejo       HandlingUnit[]
+  movimientos       InventoryMovement[]
+  lineasSalida      OutboundOrderLine[]
+  trazabilidad      TraceabilityLink[]
+}
+
+model HandlingUnit {
+  id              String   @id @default(uuid())
+  codigo          String   @unique @default(uuid())
+  tipoHu          String   // PALLET, CAJA, BANDEJA
+  lotId           String
+  cantidad        Float
+  uom             String
+  ubicacionActual String
+  estadoHu        String   @default("ACTIVO")
+  parentHuId      String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lote            LotInventory @relation(fields: [lotId], references: [id])
+  movimientos     InventoryMovement[]
+  lineasSalida    OutboundOrderLine[]
+}
+
+// ---------------------------------------------------------
+// 3. MOVEMENTS & TRACEABILITY
+// ---------------------------------------------------------
+
+model InventoryMovement {
+  id               String   @id @default(uuid())
+  fechaHora        DateTime @default(now())
+  tipoMovimiento   String   // ENTRADA, SALIDA, TRASIEGO, AJUSTE, TRANSFERENCIA
+  almacenId        String?
+  skuId            String
+  lotId            String?
+  huId             String?
+  fromLocationId   String?
+  toLocationId     String?
+  cantidad         Float
+  usuario          String
+  motivo           String?
+  documentoOrigen  String?
+
+  almacen          Warehouse?    @relation(fields: [almacenId], references: [id])
+  sku              SkuMaster     @relation(fields: [skuId], references: [id])
+  lote             LotInventory? @relation(fields: [lotId], references: [id])
+  hu               HandlingUnit? @relation(fields: [huId], references: [id])
+  fromLocation     Location?     @relation("FromLocation", fields: [fromLocationId], references: [id])
+  toLocation       Location?     @relation("ToLocation", fields: [toLocationId], references: [id])
+}
+
+// ---------------------------------------------------------
+// 4. ORDERS & DISPATCH
+// ---------------------------------------------------------
+
+model OutboundOrder {
+  id               String   @id @default(uuid())
+  restauranteId    String
+  prioridad        Int      @default(3)
+  fechaCompromiso  DateTime
+  estado           String   @default("PENDIENTE") // PENDIENTE, EN_PICKING, CONSOLIDADO, DESPACHADO, EN_RUTA, ENTREGADO
+  origenDynamics   String?
+
+  // Dispatch tracking
+  despachador          String?
+  fechaDespacho        DateTime?
+  vehiculoPlaca        String?
+  
+  // Delivery confirmation
+  estadoEntrega        String?   // EN_RUTA, LLEGADA, ENTREGADO, RECHAZADO
+  fechaEntrega         DateTime?
+  firmaReceptor        String?   // Base64 signature data
+  nombreReceptor       String?
+  notasEntrega         String?
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  restaurante      Restaurante @relation(fields: [restauranteId], references: [id])
+  lineas           OutboundOrderLine[]
+  trackingEvents   DispatchTracking[]
+}
+
+model DispatchTracking {
+  id               String   @id @default(uuid())
+  orderId          String
+  estado           String   // SALIDA_CEDIS, EN_RUTA, LLEGADA, ENTREGADO, RECHAZADO
+  usuario          String
+  notas            String?
+  latitud          Float?
+  longitud         Float?
+  firmaBase64      String?  // Signature on delivery
+  nombreFirmante   String?
+
+  createdAt        DateTime @default(now())
+
+  orden            OutboundOrder @relation(fields: [orderId], references: [id])
+}
+
+model OutboundOrderLine {
+  id                String   @id @default(uuid())
+  orderId           String
+  skuId             String
+  cantidadSolicitada Float
+  cantidadAsignada   Float    @default(0)
+  lotId             String?
+  huId              String?
+  reglaFefoAplicada Boolean  @default(true)
+
+  orden             OutboundOrder @relation(fields: [orderId], references: [id])
+  sku               SkuMaster     @relation(fields: [skuId], references: [id])
+  lote              LotInventory? @relation(fields: [lotId], references: [id])
+  hu                HandlingUnit? @relation(fields: [huId], references: [id])
+}
+
+model TraceabilityLink {
+  id               String   @id @default(uuid())
+  documentoEntrada String?
+  documentoSalida  String?
+  skuId            String
+  lotId            String?
+  restauranteId    String?
+  cantidad         Float
+
+  createdAt        DateTime @default(now())
+
+  sku              SkuMaster     @relation(fields: [skuId], references: [id])
+  lote             LotInventory? @relation(fields: [lotId], references: [id])
+}
+
+// ---------------------------------------------------------
+// 5. AUDIT LOG (full user action tracking)
+// ---------------------------------------------------------
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  usuario      String
+  accion       String   // CREAR_SKU, RECEPCION, TRASIEGO, DESPACHO, ENTREGA, AJUSTE, etc.
+  entidad      String   // SkuMaster, LotInventory, OutboundOrder, etc.
+  entidadId    String?
+  detalle      String?  // JSON or description of what changed
+  ipAddress    String?
+  
+  createdAt    DateTime @default(now())
+}
+
+model QualityRule {
+  id                     String   @id @default(uuid())
+  categoriaProducto      String   @unique
+  incompatibilidades     String?
+  zonaPermitida          String
+  restriccionesAlergeno  String?
+  restriccionesQuimico   String?
+
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+// ---------------------------------------------------------
+// 6. AUTH & RBAC
+// ---------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  nombre       String
+  passwordHash String
+  rolId        String?
+  almacenId    String?   // CEDIS principal asignado
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  rol          Role?    @relation(fields: [rolId], references: [id])
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  nombre      String   @unique
+  descripcion String?
+  createdAt   DateTime @default(now())
+
+  permisos    RolePermission[]
+  usuarios    User[]
+}
+
+model RolePermission {
+  id       String @id @default(uuid())
+  rolId    String
+  modulo   String  // dashboard, inventario, ubicaciones, recepcion, picking, despacho, trazabilidad, maestros, calidad, dynamics, admin
+
+  rol      Role @relation(fields: [rolId], references: [id], onDelete: Cascade)
+
+  @@unique([rolId, modulo])
+}
+
+model PlatformSettings {
+  id        String  @id @default(uuid())
+  logoUrl   String?
+  nombre    String  @default("TB WMS")
+  subtitulo String  @default("CEDIS Guatemala")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

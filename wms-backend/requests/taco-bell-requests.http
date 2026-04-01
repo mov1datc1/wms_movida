@@ -1,0 +1,52 @@
+### Variables
+@baseUrl = http://localhost:3000
+
+---
+### 1. Dynamics Integration: Crear Maestro de SKU
+POST {{baseUrl}}/integrations/sku
+Content-Type: application/json
+Authorization: Bearer <DYNAMICS_TOKEN>
+
+{
+  "codigoDynamics": "SKU-BEANS-001",
+  "descripcion": "Frijoles Refritos Taco Bell 2Kg",
+  "categoria": "Insumo Principal",
+  "uomBase": "KG",
+  "requiereLote": true,
+  "requiereVencimiento": true,
+  "temperaturaRequerida": "AMBIENTE",
+  "familiaCalidad": "ALIMENTO"
+}
+
+---
+### 2. Operations Inbound: Recibir Producto (Generar HU y Lote)
+POST {{baseUrl}}/operations/inbound/receive
+Content-Type: application/json
+Authorization: Bearer <RECEIVER_TOKEN>
+
+{
+  "skuId": "ID_DEL_SKU",
+  "lote": "L240915A",
+  "fechaVencimiento": "2026-04-20T00:00:00.000Z",
+  "cantidad": 100,
+  "uom": "KG",
+  "tipoHu": "PALLET",
+  "ubicacionDestino": "RECIBO-01"
+}
+
+---
+### 3. Inventory: Consultar Lotes en Ubicación
+GET {{baseUrl}}/inventory/locations/RECIBO-01/lots
+Authorization: Bearer <SUPERVISOR_TOKEN>
+
+---
+### 4. Operations Outbound: Sugerir Picking (FEFO)
+POST {{baseUrl}}/operations/outbound/picking/suggest
+Content-Type: application/json
+Authorization: Bearer <PICKER_TOKEN>
+
+{
+  "pedidoId": "ORD-TB-001",
+  "skuId": "ID_DEL_SKU",
+  "cantidadSolicitada": 10
+}
