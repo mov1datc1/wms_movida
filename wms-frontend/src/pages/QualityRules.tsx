@@ -1,5 +1,4 @@
-import React from 'react';
-import { ShieldCheck, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 export function QualityRules() {
   return (

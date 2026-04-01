@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { RefreshCw, CheckCircle2, Clock, ArrowDownToLine, ArrowUpFromLine, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { RefreshCw, CheckCircle2, Clock, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 
 interface SyncEvent {
   id: string;

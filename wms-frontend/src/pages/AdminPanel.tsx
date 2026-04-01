@@ -64,7 +64,7 @@ export function AdminPanel() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
-  const [settings, setSettings] = useState<PlatformConfig | null>(null);
+  const [, setSettings] = useState<PlatformConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const { refreshWarehouses } = useWarehouse();
 
