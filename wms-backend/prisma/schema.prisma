@@ -328,3 +328,35 @@ model OtpCode {
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
 }
+
+// ---------------------------------------------------------
+// 7. DYNAMICS 365 INTEGRATION
+// ---------------------------------------------------------
+
+model SyncLog {
+  id              String   @id @default(uuid())
+  tipo            String   // INBOUND (Dynamics→WMS), OUTBOUND (WMS→Dynamics)
+  entidad         String   // items, customers, vendors, purchaseOrders, salesOrders, inventoryAdjustments
+  registros       Int      @default(0)
+  estado          String   // SUCCESS, ERROR, PARTIAL
+  detalle         String?  // Description or error message
+  usuario         String?  // Who triggered (null = automatic)
+  duracionMs      Int?     // Execution time in milliseconds
+
+  createdAt       DateTime @default(now())
+}
+
+model DynamicsMapping {
+  id              String   @id @default(uuid())
+  entidad         String   // SkuMaster, Restaurante, OutboundOrder, etc.
+  wmsId           String   // UUID in our database
+  dynamicsId      String   // ID in Dynamics 365
+  dynamicsNumber  String?  // Human-readable number from Dynamics (e.g. item number)
+  lastSyncAt      DateTime @default(now())
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([entidad, wmsId])
+  @@unique([entidad, dynamicsId])
+}
