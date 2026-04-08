@@ -17,6 +17,7 @@ import { QualityRules } from './pages/QualityRules';
 import { DynamicsSync } from './pages/DynamicsSync';
 import { AdminPanel } from './pages/AdminPanel';
 import { LabelPreview } from './pages/LabelPreview';
+import { CycleCountPage } from './pages/CycleCount';
 import './index.css';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -70,6 +71,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/dynamics" element={<DynamicsSync />} />
             <Route path="/admin" element={<AdminPanel />} />
             <Route path="/etiquetado" element={<LabelPreview />} />
+            <Route path="/conteo-ciclico" element={<CycleCountPage />} />
           </Route>
         </Routes>
       </AuthProvider>

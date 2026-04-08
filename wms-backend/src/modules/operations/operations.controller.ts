@@ -14,9 +14,44 @@ export class OperationsController {
     });
   }
 
-  // ============ RECEPCIÓN ============
+  // ============ INBOUND ORDERS (from BC Purchase Orders) ============
+  @Get('inbound-orders')
+  @ApiOperation({ summary: 'Listar órdenes de compra sincronizadas de BC' })
+  async getInboundOrders(
+    @Query('estado') estado?: string,
+    @Query('numero') numero?: string,
+  ) {
+    const where: any = {};
+    if (estado) where.estado = estado;
+    if (numero) where.numeroDynamics = { contains: numero, mode: 'insensitive' };
+
+    return this.prisma.inboundOrder.findMany({
+      where,
+      include: {
+        lineas: {
+          include: { sku: { select: { codigoDynamics: true, descripcion: true, categoria: true, temperaturaRequerida: true, uomBase: true } } },
+        },
+      },
+      orderBy: [{ estado: 'asc' }, { fechaOrden: 'desc' }],
+    });
+  }
+
+  @Get('inbound-orders/:id')
+  @ApiOperation({ summary: 'Detalle de orden de compra' })
+  async getInboundOrder(@Param('id') id: string) {
+    return this.prisma.inboundOrder.findUnique({
+      where: { id },
+      include: {
+        lineas: {
+          include: { sku: { select: { codigoDynamics: true, descripcion: true, categoria: true, temperaturaRequerida: true, uomBase: true } } },
+        },
+      },
+    });
+  }
+
+  // ============ RECEPCIÓN (with InboundOrder support) ============
   @Post('reception')
-  @ApiOperation({ summary: 'Registrar recepción de materia prima' })
+  @ApiOperation({ summary: 'Registrar recepción de materia prima (puede ser contra una OC de BC)' })
   async registerReception(@Body() data: {
     skuId: string;
     lote: string;
@@ -28,6 +63,7 @@ export class OperationsController {
     almacenId: string;
     usuario: string;
     notas?: string;
+    inboundOrderLineId?: string;  // Link to BC PO line (optional)
   }) {
     const lot = await this.prisma.lotInventory.create({
       data: {
@@ -69,6 +105,49 @@ export class OperationsController {
       where: { id: data.ubicacionId },
       data: { ocupacion: { increment: Math.min(data.cantidad, 10) }, estado: 'OCUPADO' },
     });
+
+    // ── Update InboundOrderLine if receiving against a PO ──
+    if (data.inboundOrderLineId) {
+      const line = await this.prisma.inboundOrderLine.findUnique({
+        where: { id: data.inboundOrderLineId },
+        include: { inboundOrder: true },
+      });
+
+      if (line) {
+        const newRecibida = line.cantidadRecibida + data.cantidad;
+        const lineEstado = newRecibida >= line.cantidadEsperada ? 'COMPLETO' : 'PARCIAL';
+
+        await this.prisma.inboundOrderLine.update({
+          where: { id: data.inboundOrderLineId },
+          data: {
+            cantidadRecibida: newRecibida,
+            estado: lineEstado,
+            loteAsignado: data.lote,
+            ubicacionId: data.ubicacionId,
+          },
+        });
+
+        // Check if ALL lines of the InboundOrder are complete
+        const allLines = await this.prisma.inboundOrderLine.findMany({
+          where: { inboundOrderId: line.inboundOrderId },
+        });
+        const allComplete = allLines.every(l =>
+          l.id === data.inboundOrderLineId
+            ? newRecibida >= l.cantidadEsperada
+            : l.cantidadRecibida >= l.cantidadEsperada
+        );
+        const anyReceived = allLines.some(l =>
+          l.id === data.inboundOrderLineId
+            ? newRecibida > 0
+            : l.cantidadRecibida > 0
+        );
+
+        await this.prisma.inboundOrder.update({
+          where: { id: line.inboundOrderId },
+          data: { estado: allComplete ? 'RECIBIDO' : anyReceived ? 'PARCIAL' : 'PENDIENTE' },
+        });
+      }
+    }
 
     await this.audit(data.usuario, 'RECEPCION', 'LotInventory', lot.id,
       `Lote: ${data.lote}, Cant: ${data.cantidad}, SKU: ${data.skuId}, Proveedor: ${data.proveedor}`);
@@ -443,5 +522,209 @@ export class OperationsController {
       orderBy: { createdAt: 'desc' },
       take: parseInt(limit || '100'),
     });
+  }
+
+  // ============ CYCLE COUNT ============
+  @Get('cycle-counts')
+  @ApiOperation({ summary: 'Listar conteos cíclicos' })
+  async getCycleCounts(@Query('estado') estado?: string) {
+    const where: any = {};
+    if (estado) where.estado = estado;
+
+    return this.prisma.cycleCount.findMany({
+      where,
+      include: {
+        lineas: {
+          include: { sku: { select: { codigoDynamics: true, descripcion: true, categoria: true } } },
+        },
+      },
+      orderBy: { fechaProgramada: 'desc' },
+    });
+  }
+
+  @Get('cycle-counts/:id')
+  @ApiOperation({ summary: 'Detalle de conteo cíclico' })
+  async getCycleCount(@Param('id') id: string) {
+    return this.prisma.cycleCount.findUnique({
+      where: { id },
+      include: {
+        lineas: {
+          include: { sku: { select: { codigoDynamics: true, descripcion: true, categoria: true, uomBase: true } } },
+          orderBy: { estado: 'asc' },
+        },
+      },
+    });
+  }
+
+  @Post('cycle-counts')
+  @ApiOperation({ summary: 'Crear conteo cíclico (genera líneas desde inventario actual)' })
+  async createCycleCount(@Body() data: {
+    nombre: string;
+    tipo: string;
+    clasificacion?: string;
+    fechaProgramada: string;
+    almacenId?: string;
+    asignadoA?: string;
+    notas?: string;
+    usuario?: string;
+  }) {
+    // Generate code
+    const count = await this.prisma.cycleCount.count();
+    const codigo = `CC-${new Date().getFullYear()}-${String(count + 1).padStart(3, '0')}`;
+
+    // Get current inventory by SKU (grouped)
+    const lots = await this.prisma.lotInventory.findMany({
+      where: { cantidadDisponible: { gt: 0 }, estadoCalidad: 'LIBERADO' },
+      include: { sku: true, ubicacion: true },
+    });
+
+    // Group by SKU+location for counting
+    const lineMap = new Map<string, { skuId: string; ubicacionId: string | null; lote: string; total: number }>();
+    for (const lot of lots) {
+      const key = data.tipo === 'LOTE'
+        ? `${lot.skuId}-${lot.lote}`
+        : data.tipo === 'UBICACION'
+          ? `${lot.skuId}-${lot.ubicacionId}`
+          : lot.skuId;
+
+      if (lineMap.has(key)) {
+        lineMap.get(key)!.total += lot.cantidadDisponible;
+      } else {
+        lineMap.set(key, {
+          skuId: lot.skuId,
+          ubicacionId: lot.ubicacionId,
+          lote: data.tipo === 'LOTE' ? lot.lote : '',
+          total: lot.cantidadDisponible,
+        });
+      }
+    }
+
+    const cc = await this.prisma.cycleCount.create({
+      data: {
+        codigo,
+        nombre: data.nombre,
+        tipo: data.tipo || 'SKU',
+        clasificacion: data.clasificacion || 'A',
+        fechaProgramada: new Date(data.fechaProgramada),
+        almacenId: data.almacenId,
+        asignadoA: data.asignadoA,
+        notas: data.notas,
+        lineas: {
+          create: Array.from(lineMap.values()).map(item => ({
+            skuId: item.skuId,
+            ubicacionId: item.ubicacionId,
+            lote: item.lote || null,
+            cantidadSistema: item.total,
+          })),
+        },
+      },
+      include: {
+        lineas: { include: { sku: { select: { codigoDynamics: true, descripcion: true } } } },
+      },
+    });
+
+    await this.audit(data.usuario || 'Sistema', 'CREAR_CONTEO', 'CycleCount', cc.id,
+      `${codigo}: ${cc.lineas.length} líneas, tipo: ${data.tipo}`);
+
+    return cc;
+  }
+
+  @Put('cycle-counts/:id/start')
+  @ApiOperation({ summary: 'Iniciar conteo cíclico' })
+  async startCycleCount(@Param('id') id: string) {
+    return this.prisma.cycleCount.update({
+      where: { id },
+      data: { estado: 'EN_PROGRESO', fechaInicio: new Date() },
+    });
+  }
+
+  @Put('cycle-counts/:countId/lines/:lineId/count')
+  @ApiOperation({ summary: 'Registrar conteo físico de una línea' })
+  async recordCount(
+    @Param('countId') countId: string,
+    @Param('lineId') lineId: string,
+    @Body() data: { cantidadFisica: number; contadoPor: string; notas?: string },
+  ) {
+    const line = await this.prisma.cycleCountLine.findUnique({ where: { id: lineId } });
+    if (!line) throw new HttpException('Línea no encontrada', HttpStatus.NOT_FOUND);
+
+    const discrepancia = data.cantidadFisica - line.cantidadSistema;
+    const porcentajeDisc = line.cantidadSistema > 0
+      ? (discrepancia / line.cantidadSistema) * 100
+      : data.cantidadFisica > 0 ? 100 : 0;
+
+    const updated = await this.prisma.cycleCountLine.update({
+      where: { id: lineId },
+      data: {
+        cantidadFisica: data.cantidadFisica,
+        discrepancia,
+        porcentajeDisc: Math.round(porcentajeDisc * 100) / 100,
+        estado: 'CONTADO',
+        contadoPor: data.contadoPor,
+        contadoEn: new Date(),
+        notas: data.notas,
+      },
+      include: { sku: { select: { codigoDynamics: true, descripcion: true } } },
+    });
+
+    // Check if all lines are counted
+    const allLines = await this.prisma.cycleCountLine.findMany({ where: { cycleCountId: countId } });
+    const allCounted = allLines.every(l => l.id === lineId ? true : l.estado !== 'PENDIENTE');
+    if (allCounted) {
+      await this.prisma.cycleCount.update({
+        where: { id: countId },
+        data: { estado: 'COMPLETADO' },
+      });
+    }
+
+    return updated;
+  }
+
+  @Put('cycle-counts/:id/close')
+  @ApiOperation({ summary: 'Cerrar conteo y generar ajustes de inventario' })
+  async closeCycleCount(
+    @Param('id') id: string,
+    @Body() body: { usuario: string; aplicarAjustes?: boolean },
+  ) {
+    const cc = await this.prisma.cycleCount.findUnique({
+      where: { id },
+      include: { lineas: { include: { sku: true } } },
+    });
+    if (!cc) throw new HttpException('Conteo no encontrado', HttpStatus.NOT_FOUND);
+
+    // Optionally apply adjustments to inventory
+    if (body.aplicarAjustes) {
+      for (const line of cc.lineas) {
+        if (line.discrepancia && line.discrepancia !== 0) {
+          // Create adjustment movement
+          await this.prisma.inventoryMovement.create({
+            data: {
+              tipoMovimiento: 'AJUSTE',
+              skuId: line.skuId,
+              cantidad: Math.abs(line.discrepancia),
+              usuario: body.usuario,
+              motivo: `Ajuste conteo cíclico ${cc.codigo}: ${line.discrepancia > 0 ? 'Sobrante' : 'Faltante'} ${Math.abs(line.discrepancia)} UN`,
+              almacenId: cc.almacenId,
+            },
+          });
+
+          await this.prisma.cycleCountLine.update({
+            where: { id: line.id },
+            data: { estado: 'AJUSTADO' },
+          });
+        }
+      }
+    }
+
+    const updated = await this.prisma.cycleCount.update({
+      where: { id },
+      data: { estado: 'CERRADO', fechaCierre: new Date() },
+      include: { lineas: { include: { sku: true } } },
+    });
+
+    await this.audit(body.usuario, 'CERRAR_CONTEO', 'CycleCount', id,
+      `${cc.codigo}: ${body.aplicarAjustes ? 'Ajustes aplicados' : 'Sin ajustes'}`);
+
+    return updated;
   }
 }

@@ -52,7 +52,9 @@ model SkuMaster {
   lotes                 LotInventory[]
   movimientos           InventoryMovement[]
   lineasSalida          OutboundOrderLine[]
+  lineasEntrada         InboundOrderLine[]
   trazabilidad          TraceabilityLink[]
+  cycleCountLineas      CycleCountLine[]
 }
 
 model Restaurante {
@@ -169,7 +171,42 @@ model InventoryMovement {
 }
 
 // ---------------------------------------------------------
-// 4. ORDERS & DISPATCH
+// 4A. INBOUND ORDERS (from BC Purchase Orders)
+// ---------------------------------------------------------
+
+model InboundOrder {
+  id               String   @id @default(uuid())
+  numeroDynamics   String   @unique  // BC PO number: "106024"
+  proveedorNombre  String
+  proveedorId      String?           // BC vendor number
+  fechaOrden       DateTime
+  fechaEsperada    DateTime?         // Expected delivery date
+  estado           String   @default("PENDIENTE")  // PENDIENTE, PARCIAL, RECIBIDO, CERRADO
+  almacenId        String?           // Target CEDIS
+  notas            String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  lineas           InboundOrderLine[]
+}
+
+model InboundOrderLine {
+  id                 String   @id @default(uuid())
+  inboundOrderId     String
+  skuId              String
+  cantidadEsperada   Float
+  cantidadRecibida   Float    @default(0)
+  estado             String   @default("PENDIENTE")  // PENDIENTE, PARCIAL, COMPLETO
+  loteAsignado       String?                          // Lot assigned during reception
+  ubicacionId        String?                          // Location assigned during putaway
+
+  inboundOrder       InboundOrder @relation(fields: [inboundOrderId], references: [id])
+  sku                SkuMaster    @relation(fields: [skuId], references: [id])
+}
+
+// ---------------------------------------------------------
+// 4B. OUTBOUND ORDERS & DISPATCH
 // ---------------------------------------------------------
 
 model OutboundOrder {
@@ -359,4 +396,68 @@ model DynamicsMapping {
 
   @@unique([entidad, wmsId])
   @@unique([entidad, dynamicsId])
+}
+
+// ---------------------------------------------------------
+// 8. INTEGRATION CONFIG (Editable from UI)
+// ---------------------------------------------------------
+
+model IntegrationConfig {
+  id              String    @id @default(uuid())
+  provider        String    @unique @default("dynamics365") // dynamics365, sap, etc.
+  tenantId        String?
+  clientId        String?
+  clientSecret    String?   // Stored in Supabase (encrypted at rest)
+  environment     String    @default("production")
+  companyId       String?
+  isActive        Boolean   @default(false)
+  lastTestedAt    DateTime?
+  lastTestResult  String?   // SUCCESS, FAILED + description
+  updatedBy       String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// ---------------------------------------------------------
+// 9. CYCLE COUNTING (Auditoría de Inventario)
+// ---------------------------------------------------------
+
+model CycleCount {
+  id             String   @id @default(uuid())
+  codigo         String   @unique           // CC-2026-001
+  nombre         String                     // "Conteo Cíclico Clase A - Abril"
+  tipo           String   @default("SKU")   // SKU, UBICACION, LOTE
+  clasificacion  String   @default("A")     // ABC: A=alta rotación, B=media, C=baja
+  estado         String   @default("PROGRAMADO") // PROGRAMADO, EN_PROGRESO, COMPLETADO, CERRADO
+  fechaProgramada DateTime
+  fechaInicio    DateTime?
+  fechaCierre    DateTime?
+  almacenId      String?
+  asignadoA      String?                    // Auditor asignado
+  notas          String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lineas         CycleCountLine[]
+}
+
+model CycleCountLine {
+  id               String   @id @default(uuid())
+  cycleCountId     String
+  skuId            String
+  ubicacionId      String?
+  lote             String?                    // Lot number to count
+  cantidadSistema  Float                      // WMS quantity
+  cantidadFisica   Float?                     // Counted quantity (null = not yet counted)
+  discrepancia     Float?                     // cantidadFisica - cantidadSistema
+  porcentajeDisc   Float?                     // % discrepancy
+  estado           String   @default("PENDIENTE") // PENDIENTE, CONTADO, AJUSTADO
+  contadoPor       String?
+  contadoEn        DateTime?
+  notas            String?
+
+  cycleCount       CycleCount @relation(fields: [cycleCountId], references: [id])
+  sku              SkuMaster  @relation(fields: [skuId], references: [id])
 }

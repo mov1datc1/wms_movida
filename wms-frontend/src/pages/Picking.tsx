@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import {
   ScanLine, CheckCircle2, ChevronRight, Package, MapPin,
-  ArrowRight, Loader2, Wifi, PackageOpen
+  ArrowRight, Loader2, Wifi, PackageOpen, Search
 } from 'lucide-react';
 
 import { API } from '../config/api';
@@ -55,6 +55,8 @@ export function Picking() {
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const [pickedItems, setPickedItems] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const { selectedWarehouseId } = useWarehouse();
 
   useEffect(() => {
@@ -73,7 +75,22 @@ export function Picking() {
     load();
   }, [selectedWarehouseId]);
 
-  const pendingOrders = orders.filter(o => ['PENDIENTE', 'EN_PICKING'].includes(o.estado));
+  const allPendingOrders = orders.filter(o => ['PENDIENTE', 'EN_PICKING'].includes(o.estado));
+  
+  // Apply filters
+  const pendingOrders = useMemo(() => {
+    return allPendingOrders.filter(o => {
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchId = (o.origenDynamics || o.id).toLowerCase().includes(q);
+        const matchRest = o.restaurante.nombre.toLowerCase().includes(q);
+        if (!matchId && !matchRest) return false;
+      }
+      if (statusFilter && o.estado !== statusFilter) return false;
+      return true;
+    });
+  }, [allPendingOrders, searchQuery, statusFilter]);
+
   const selectedOrderData = orders.find(o => o.id === selectedOrder);
 
   // Suggest best lot for each line using FEFO
@@ -137,6 +154,23 @@ export function Picking() {
       <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 'var(--space-6)' }}>
         {/* Orders List */}
         <div className="glass-card animate-slide-up" style={{ overflow: 'hidden' }}>
+          {/* Search & Filters */}
+          <div style={{ padding: 'var(--space-3)', borderBottom: '1px solid var(--border-subtle)' }}>
+            <div style={{ position: 'relative', marginBottom: 'var(--space-2)' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input type="text" className="form-input" placeholder="Buscar # orden, restaurante..."
+                value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: 32, fontSize: 'var(--font-xs)' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              {['', 'PENDIENTE', 'EN_PICKING'].map(s => (
+                <button key={s} className={`btn btn-sm ${statusFilter === s ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setStatusFilter(s)} style={{ fontSize: 10, padding: '2px 8px' }}>
+                  {s || 'Todos'}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="data-table-header">
             <div className="data-table-title">📋 Pedidos ({pendingOrders.length})</div>
           </div>
@@ -160,7 +194,7 @@ export function Picking() {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 4 }}>
                     <span style={{ fontSize: 'var(--font-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {order.id.substring(0, 12)}...
+                      {order.origenDynamics ? `#${order.origenDynamics}` : order.id.substring(0, 12) + '...'}
                     </span>
                     <span className={`badge badge-${order.estado.toLowerCase().replace('_', '-')}`}>
                       {order.estado.replace('_', ' ')}

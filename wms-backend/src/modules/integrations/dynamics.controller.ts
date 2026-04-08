@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Query, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { DynamicsService } from './dynamics.service.js';
 import { DynamicsSyncService } from './dynamics-sync.service.js';
@@ -15,8 +15,42 @@ export class DynamicsController {
 
   @Get('status')
   @ApiOperation({ summary: 'Get Dynamics 365 connection status' })
-  getStatus() {
+  async getStatus() {
     return this.dynamics.getStatus();
+  }
+
+  // ── Integration Config (UI-editable) ──────────────────
+
+  @Get('config')
+  @ApiOperation({ summary: 'Get current integration configuration (secrets masked)' })
+  async getConfig() {
+    return this.dynamics.getConfig();
+  }
+
+  @Put('config')
+  @ApiOperation({ summary: 'Save/update integration configuration' })
+  async updateConfig(@Body() body: {
+    tenantId: string;
+    clientId: string;
+    clientSecret?: string;
+    environment: string;
+    companyId: string;
+    isActive: boolean;
+    updatedBy?: string;
+  }) {
+    return this.dynamics.updateConfig(body);
+  }
+
+  @Post('config/test')
+  @ApiOperation({ summary: 'Test connection with provided or current credentials' })
+  async testConnection(@Body() body?: {
+    tenantId: string;
+    clientId: string;
+    clientSecret: string;
+    environment: string;
+    companyId: string;
+  }) {
+    return this.dynamics.testConnection(body);
   }
 
   // ── Full Sync ─────────────────────────────────────────
@@ -24,6 +58,7 @@ export class DynamicsController {
   @Post('sync/full')
   @ApiOperation({ summary: 'Run full bidirectional sync' })
   async runFullSync(@Query('usuario') usuario?: string) {
+    await this.dynamics.ensureConfigLoaded();
     const result = await this.syncService.runFullSync(usuario || 'system');
     return {
       success: true,
@@ -37,30 +72,35 @@ export class DynamicsController {
   @Post('sync/items')
   @ApiOperation({ summary: 'Sync Items from Dynamics → SkuMaster' })
   async syncItems(@Query('usuario') usuario?: string) {
+    await this.dynamics.ensureConfigLoaded();
     return this.syncService.syncItems(usuario || 'system');
   }
 
   @Post('sync/customers')
   @ApiOperation({ summary: 'Sync Customers from Dynamics → Restaurante' })
   async syncCustomers(@Query('usuario') usuario?: string) {
+    await this.dynamics.ensureConfigLoaded();
     return this.syncService.syncCustomers(usuario || 'system');
   }
 
   @Post('sync/vendors')
   @ApiOperation({ summary: 'Sync Vendors from Dynamics' })
   async syncVendors(@Query('usuario') usuario?: string) {
+    await this.dynamics.ensureConfigLoaded();
     return this.syncService.syncVendors(usuario || 'system');
   }
 
   @Post('sync/purchase-orders')
   @ApiOperation({ summary: 'Sync Purchase Orders from Dynamics' })
   async syncPurchaseOrders(@Query('usuario') usuario?: string) {
+    await this.dynamics.ensureConfigLoaded();
     return this.syncService.syncPurchaseOrders(usuario || 'system');
   }
 
   @Post('sync/sales-orders')
   @ApiOperation({ summary: 'Sync Sales Orders from Dynamics' })
   async syncSalesOrders(@Query('usuario') usuario?: string) {
+    await this.dynamics.ensureConfigLoaded();
     return this.syncService.syncSalesOrders(usuario || 'system');
   }
 

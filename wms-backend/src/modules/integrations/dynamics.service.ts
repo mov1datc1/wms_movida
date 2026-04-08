@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../prisma.service.js';
 import axios, { AxiosInstance } from 'axios';
 
 /**
  * DynamicsService — Handles OAuth 2.0 authentication and HTTP communication
  * with Microsoft Dynamics 365 Business Central API v2.0
  * 
- * Supports both real BC integration and a demo/mock mode for demos without credentials.
+ * Configuration priority:
+ *   1. IntegrationConfig from DB (editable from UI)
+ *   2. Environment variables (fallback)
+ *   3. Demo mode (if neither is configured)
  */
 @Injectable()
 export class DynamicsService {
@@ -14,38 +18,337 @@ export class DynamicsService {
   private tokenExpiresAt: number = 0;
   private httpClient: AxiosInstance;
 
-  // Configuration from environment
-  private readonly tenantId = process.env['DYNAMICS_TENANT_ID'] || '';
-  private readonly clientId = process.env['DYNAMICS_CLIENT_ID'] || '';
-  private readonly clientSecret = process.env['DYNAMICS_CLIENT_SECRET'] || '';
-  private readonly environment = process.env['DYNAMICS_ENVIRONMENT'] || 'production';
-  private readonly companyId = process.env['DYNAMICS_COMPANY_ID'] || '';
+  // Active configuration (loaded on demand)
+  private activeTenantId: string = '';
+  private activeClientId: string = '';
+  private activeClientSecret: string = '';
+  private activeEnvironment: string = 'production';
+  private activeCompanyId: string = '';
+  private configLoaded: boolean = false;
 
-  constructor() {
+  constructor(private prisma: PrismaService) {
     this.httpClient = axios.create({
       timeout: 30000,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
+  /**
+   * Load configuration from DB first, then env vars as fallback.
+   * Called lazily on first use and can be force-refreshed.
+   */
+  async loadConfig(force = false): Promise<void> {
+    if (this.configLoaded && !force) return;
+
+    try {
+      const dbConfig = await this.prisma.integrationConfig.findUnique({
+        where: { provider: 'dynamics365' },
+      });
+
+      if (dbConfig && dbConfig.isActive && dbConfig.tenantId && dbConfig.clientId && dbConfig.clientSecret) {
+        this.activeTenantId = dbConfig.tenantId;
+        this.activeClientId = dbConfig.clientId;
+        this.activeClientSecret = dbConfig.clientSecret;
+        this.activeEnvironment = dbConfig.environment || 'production';
+        this.activeCompanyId = dbConfig.companyId || '';
+        this.logger.log('✅ Dynamics config loaded from database (UI-configured)');
+      } else {
+        // Fallback to env vars
+        this.activeTenantId = process.env['DYNAMICS_TENANT_ID'] || '';
+        this.activeClientId = process.env['DYNAMICS_CLIENT_ID'] || '';
+        this.activeClientSecret = process.env['DYNAMICS_CLIENT_SECRET'] || '';
+        this.activeEnvironment = process.env['DYNAMICS_ENVIRONMENT'] || 'production';
+        this.activeCompanyId = process.env['DYNAMICS_COMPANY_ID'] || '';
+        if (this.activeTenantId) {
+          this.logger.log('✅ Dynamics config loaded from environment variables');
+        }
+      }
+    } catch (error) {
+      // If DB fails, fallback to env
+      this.activeTenantId = process.env['DYNAMICS_TENANT_ID'] || '';
+      this.activeClientId = process.env['DYNAMICS_CLIENT_ID'] || '';
+      this.activeClientSecret = process.env['DYNAMICS_CLIENT_SECRET'] || '';
+      this.activeEnvironment = process.env['DYNAMICS_ENVIRONMENT'] || 'production';
+      this.activeCompanyId = process.env['DYNAMICS_COMPANY_ID'] || '';
+    }
+
+    this.configLoaded = true;
+  }
+
   /** Check if Dynamics credentials are configured */
   isConfigured(): boolean {
-    return !!(this.tenantId && this.clientId && this.clientSecret);
+    return !!(this.activeTenantId && this.activeClientId && this.activeClientSecret);
+  }
+
+  /** Ensure config is loaded before checking */
+  async ensureConfigLoaded(): Promise<void> {
+    await this.loadConfig();
   }
 
   /** Get connection status */
-  getStatus(): {
+  async getStatus(): Promise<{
     configured: boolean;
     mode: 'live' | 'demo';
     tenantId: string;
     environment: string;
-  } {
+    configSource: 'database' | 'environment' | 'none';
+  }> {
+    await this.loadConfig();
+
+    let configSource: 'database' | 'environment' | 'none' = 'none';
+    try {
+      const dbConfig = await this.prisma.integrationConfig.findUnique({
+        where: { provider: 'dynamics365' },
+      });
+      if (dbConfig?.isActive && dbConfig.tenantId && dbConfig.clientId && dbConfig.clientSecret) {
+        configSource = 'database';
+      } else if (process.env['DYNAMICS_TENANT_ID'] && process.env['DYNAMICS_CLIENT_ID'] && process.env['DYNAMICS_CLIENT_SECRET']) {
+        configSource = 'environment';
+      }
+    } catch { /* ignore */ }
+
     return {
       configured: this.isConfigured(),
       mode: this.isConfigured() ? 'live' : 'demo',
-      tenantId: this.tenantId ? `${this.tenantId.slice(0, 8)}...` : 'N/A',
-      environment: this.environment,
+      tenantId: this.activeTenantId ? `${this.activeTenantId.slice(0, 8)}...` : 'N/A',
+      environment: this.activeEnvironment,
+      configSource,
     };
+  }
+
+  // =====================================================
+  //  INTEGRATION CONFIG CRUD (UI-editable)
+  // =====================================================
+
+  /** Get current integration config (secrets masked) */
+  async getConfig(): Promise<any> {
+    const dbConfig = await this.prisma.integrationConfig.findUnique({
+      where: { provider: 'dynamics365' },
+    });
+
+    if (dbConfig) {
+      return {
+        id: dbConfig.id,
+        provider: dbConfig.provider,
+        tenantId: dbConfig.tenantId || '',
+        clientId: dbConfig.clientId || '',
+        clientSecret: dbConfig.clientSecret ? '●●●●●●●●●●●●●●●●' : '',
+        clientSecretSet: !!dbConfig.clientSecret,
+        environment: dbConfig.environment,
+        companyId: dbConfig.companyId || '',
+        isActive: dbConfig.isActive,
+        lastTestedAt: dbConfig.lastTestedAt,
+        lastTestResult: dbConfig.lastTestResult,
+        updatedBy: dbConfig.updatedBy,
+        updatedAt: dbConfig.updatedAt,
+        configSource: 'database',
+      };
+    }
+
+    // Return env var status if no DB config
+    const envConfigured = !!(process.env['DYNAMICS_TENANT_ID'] && process.env['DYNAMICS_CLIENT_ID'] && process.env['DYNAMICS_CLIENT_SECRET']);
+    return {
+      id: null,
+      provider: 'dynamics365',
+      tenantId: process.env['DYNAMICS_TENANT_ID'] || '',
+      clientId: process.env['DYNAMICS_CLIENT_ID'] ? '●●●●●●●●' : '',
+      clientSecret: process.env['DYNAMICS_CLIENT_SECRET'] ? '●●●●●●●●●●●●●●●●' : '',
+      clientSecretSet: !!process.env['DYNAMICS_CLIENT_SECRET'],
+      environment: process.env['DYNAMICS_ENVIRONMENT'] || 'production',
+      companyId: process.env['DYNAMICS_COMPANY_ID'] || '',
+      isActive: envConfigured,
+      lastTestedAt: null,
+      lastTestResult: null,
+      updatedBy: null,
+      updatedAt: null,
+      configSource: envConfigured ? 'environment' : 'none',
+    };
+  }
+
+  /** Save or update integration config */
+  async updateConfig(data: {
+    tenantId: string;
+    clientId: string;
+    clientSecret?: string; // Optional — only update if provided (not masked value)
+    environment: string;
+    companyId: string;
+    isActive: boolean;
+    updatedBy?: string;
+  }): Promise<any> {
+    const updateData: any = {
+      tenantId: data.tenantId,
+      clientId: data.clientId,
+      environment: data.environment,
+      companyId: data.companyId,
+      isActive: data.isActive,
+      updatedBy: data.updatedBy || 'system',
+    };
+
+    // Only update secret if a real value was provided (not the masked placeholder)
+    if (data.clientSecret && !data.clientSecret.includes('●')) {
+      updateData.clientSecret = data.clientSecret;
+    }
+
+    const config = await this.prisma.integrationConfig.upsert({
+      where: { provider: 'dynamics365' },
+      create: {
+        provider: 'dynamics365',
+        ...updateData,
+        clientSecret: data.clientSecret || '',
+      },
+      update: updateData,
+    });
+
+    // Force reload config
+    this.configLoaded = false;
+    this.accessToken = null;
+    this.tokenExpiresAt = 0;
+    await this.loadConfig(true);
+
+    this.logger.log(`✅ Integration config updated by ${data.updatedBy}`);
+
+    return {
+      success: true,
+      message: 'Configuración guardada exitosamente',
+      isActive: config.isActive,
+    };
+  }
+
+  /**
+   * Test connection with given or current credentials.
+   * Tries to obtain an OAuth token without saving anything.
+   */
+  async testConnection(credentials?: {
+    tenantId: string;
+    clientId: string;
+    clientSecret: string;
+    environment: string;
+    companyId: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    details?: any;
+  }> {
+    const tenantId = credentials?.tenantId || this.activeTenantId;
+    const clientId = credentials?.clientId || this.activeClientId;
+    let clientSecret = credentials?.clientSecret || this.activeClientSecret;
+    const environment = credentials?.environment || this.activeEnvironment;
+    const companyId = credentials?.companyId || this.activeCompanyId;
+
+    if (!tenantId || !clientId || !clientSecret) {
+      return {
+        success: false,
+        message: 'Faltan credenciales: Tenant ID, Client ID y Client Secret son obligatorios.',
+      };
+    }
+
+    // If the secret is masked, try to get the real one from DB
+    if (clientSecret.includes('●')) {
+      const dbConfig = await this.prisma.integrationConfig.findUnique({
+        where: { provider: 'dynamics365' },
+      });
+      if (dbConfig?.clientSecret) {
+        clientSecret = dbConfig.clientSecret;
+      } else {
+        clientSecret = process.env['DYNAMICS_CLIENT_SECRET'] || '';
+      }
+      if (!clientSecret) {
+        return {
+          success: false,
+          message: 'No se pudo obtener el Client Secret. Por favor ingresa el valor real.',
+        };
+      }
+    }
+
+    const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+
+    try {
+      // Step 1: Try to get OAuth token
+      const tokenResponse = await axios.post(tokenUrl, new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+        scope: 'https://api.businesscentral.dynamics.com/.default',
+      }).toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 15000,
+      });
+
+      const token = tokenResponse.data.access_token;
+      if (!token) {
+        throw new Error('Token vacío recibido de Azure');
+      }
+
+      // Step 2: Try to hit the BC API to verify company access
+      let companyInfo = null;
+      if (companyId) {
+        try {
+          const baseUrl = `https://api.businesscentral.dynamics.com/v2.0/${tenantId}/${environment}/api/v2.0/companies(${companyId})`;
+          const companyResponse = await this.httpClient.get(baseUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 10000,
+          });
+          companyInfo = {
+            name: companyResponse.data.name,
+            displayName: companyResponse.data.displayName,
+          };
+        } catch (apiError: any) {
+          return {
+            success: false,
+            message: `✅ OAuth exitoso, pero ❌ Company ID inválido: ${apiError.response?.data?.error?.message || apiError.message}`,
+            details: { oauthOk: true, companyOk: false },
+          };
+        }
+      }
+
+      // Save test result to DB
+      await this.prisma.integrationConfig.upsert({
+        where: { provider: 'dynamics365' },
+        create: {
+          provider: 'dynamics365',
+          tenantId, clientId, clientSecret, environment, companyId,
+          lastTestedAt: new Date(),
+          lastTestResult: 'SUCCESS',
+        },
+        update: {
+          lastTestedAt: new Date(),
+          lastTestResult: 'SUCCESS',
+        },
+      });
+
+      return {
+        success: true,
+        message: `✅ Conexión exitosa — OAuth OK${companyInfo ? `, Company: "${companyInfo.displayName || companyInfo.name}"` : ''}`,
+        details: { oauthOk: true, companyOk: !!companyInfo, company: companyInfo },
+      };
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error_description || error.response?.data?.error?.message || error.message;
+
+      // Save failed test result
+      try {
+        await this.prisma.integrationConfig.upsert({
+          where: { provider: 'dynamics365' },
+          create: {
+            provider: 'dynamics365',
+            tenantId, clientId, clientSecret, environment, companyId,
+            lastTestedAt: new Date(),
+            lastTestResult: `FAILED: ${errorMsg}`,
+          },
+          update: {
+            lastTestedAt: new Date(),
+            lastTestResult: `FAILED: ${errorMsg}`,
+          },
+        });
+      } catch { /* ignore */ }
+
+      this.logger.error(`❌ Connection test failed: ${errorMsg}`);
+
+      return {
+        success: false,
+        message: `❌ Error de conexión: ${errorMsg}`,
+        details: { oauthOk: false },
+      };
+    }
   }
 
   /**
@@ -53,22 +356,24 @@ export class DynamicsService {
    * Token is cached until 5 minutes before expiry
    */
   async getAccessToken(): Promise<string> {
+    await this.loadConfig();
+
     // Return cached token if still valid
     if (this.accessToken && Date.now() < this.tokenExpiresAt - 300000) {
       return this.accessToken;
     }
 
     if (!this.isConfigured()) {
-      throw new Error('Dynamics 365 credentials not configured. Set DYNAMICS_TENANT_ID, DYNAMICS_CLIENT_ID, DYNAMICS_CLIENT_SECRET env vars.');
+      throw new Error('Dynamics 365 credentials not configured. Set DYNAMICS_TENANT_ID, DYNAMICS_CLIENT_ID, DYNAMICS_CLIENT_SECRET env vars or configure from UI.');
     }
 
-    const tokenUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`;
+    const tokenUrl = `https://login.microsoftonline.com/${this.activeTenantId}/oauth2/v2.0/token`;
 
     try {
       const response = await axios.post(tokenUrl, new URLSearchParams({
         grant_type: 'client_credentials',
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
+        client_id: this.activeClientId,
+        client_secret: this.activeClientSecret,
         scope: 'https://api.businesscentral.dynamics.com/.default',
       }).toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -86,7 +391,7 @@ export class DynamicsService {
 
   /** Base URL for Business Central API v2.0 */
   private getBaseUrl(): string {
-    return `https://api.businesscentral.dynamics.com/v2.0/${this.tenantId}/${this.environment}/api/v2.0/companies(${this.companyId})`;
+    return `https://api.businesscentral.dynamics.com/v2.0/${this.activeTenantId}/${this.activeEnvironment}/api/v2.0/companies(${this.activeCompanyId})`;
   }
 
   /**

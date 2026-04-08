@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import {
   Truck, CheckCircle2, FileText,
-  ChevronDown, Loader2, Wifi, PenLine, MapPin, ArrowRight
+  ChevronDown, Loader2, Wifi, PenLine, MapPin, ArrowRight, Eye
 } from 'lucide-react';
 
 import { API } from '../config/api';
+import { TableActions } from '../components/TableActions';
 
 interface Order {
   id: string;
@@ -55,6 +56,7 @@ export function Dispatch() {
   const [signatureData, setSignatureData] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [expandedDelivered, setExpandedDelivered] = useState<string | null>(null);
 
   const { selectedWarehouseId } = useWarehouse();
 
@@ -207,7 +209,7 @@ export function Dispatch() {
                     <Truck size={24} style={{ color: 'var(--accent-secondary)' }} />
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700 }}>{order.restaurante.nombre}</div>
+                    <div style={{ fontWeight: 700 }}>{order.origenDynamics ? `#${order.origenDynamics} — ` : ''}{order.restaurante.nombre}</div>
                     <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
                       {order.lineas.length} líneas · Compromiso: {formatDate(order.fechaCompromiso)}
                     </div>
@@ -268,7 +270,7 @@ export function Dispatch() {
             <div key={order.id} className="glass-card" style={{ padding: 'var(--space-5)', marginBottom: 'var(--space-4)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ fontWeight: 700 }}>{order.restaurante.nombre}</div>
+                  <div style={{ fontWeight: 700 }}>{order.origenDynamics ? `#${order.origenDynamics} — ` : ''}{order.restaurante.nombre}</div>
                   <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
                     Despachador: {order.despachador || '—'} · Vehículo: {order.vehiculoPlaca || '—'} · Salida: {order.fechaDespacho ? formatDateTime(order.fechaDespacho) : '—'}
                   </div>
@@ -307,12 +309,29 @@ export function Dispatch() {
       {/* Delivered */}
       {deliveredOrders.length > 0 && (
         <div>
-          <h2 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, marginBottom: 'var(--space-4)' }}>✅ Entregados</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)' }}>
+            <h2 style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>✅ Entregados</h2>
+            <TableActions
+              data={deliveredOrders}
+              columns={[
+                { key: 'origenDynamics', label: '# Pedido', format: (v, row) => v ? `#${v}` : row.id.substring(0,8) },
+                { key: 'restaurante', label: 'Restaurante', format: (_, row) => row.restaurante?.nombre || '—' },
+                { key: 'despachador', label: 'Despachador' },
+                { key: 'fechaDespacho', label: 'Salida', format: (v) => v ? new Date(v).toLocaleString('es-GT') : '—' },
+                { key: 'fechaEntrega', label: 'Entrega', format: (v) => v ? new Date(v).toLocaleString('es-GT') : '—' },
+                { key: 'nombreReceptor', label: 'Receptor' },
+                { key: 'firmaReceptor', label: 'Firma', format: (v) => v ? 'Firmado' : 'Pendiente' },
+              ]}
+              title="Entregas Completadas"
+              filename="entregas_wms"
+            />
+          </div>
           <div className="data-table-wrapper glass-card animate-slide-up">
             <div className="data-table-scroll">
               <table>
                 <thead>
                   <tr>
+                    <th># Pedido</th>
                     <th>Restaurante</th>
                     <th>Despachador</th>
                     <th>Salida</th>
@@ -320,19 +339,103 @@ export function Dispatch() {
                     <th>Receptor</th>
                     <th>Firma</th>
                     <th>Estado</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {deliveredOrders.map(order => (
-                    <tr key={order.id}>
-                      <td style={{ fontWeight: 600 }}>{order.restaurante.nombre}</td>
-                      <td>{order.despachador || '—'}</td>
-                      <td>{order.fechaDespacho ? formatDateTime(order.fechaDespacho) : '—'}</td>
-                      <td>{order.fechaEntrega ? formatDateTime(order.fechaEntrega) : '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{order.nombreReceptor || '—'}</td>
-                      <td>{order.firmaReceptor ? '✅ Firmado' : '—'}</td>
-                      <td><span className="badge badge-liberado">ENTREGADO</span></td>
-                    </tr>
+                    <>
+                      <tr key={order.id}>
+                        <td style={{ fontWeight: 700, color: 'var(--accent-primary)' }}>
+                          {order.origenDynamics ? `#${order.origenDynamics}` : order.id.substring(0, 8)}
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{order.restaurante.nombre}</td>
+                        <td>{order.despachador || '—'}</td>
+                        <td style={{ fontSize: 'var(--font-xs)' }}>{order.fechaDespacho ? formatDateTime(order.fechaDespacho) : '—'}</td>
+                        <td style={{ fontSize: 'var(--font-xs)' }}>{order.fechaEntrega ? formatDateTime(order.fechaEntrega) : '—'}</td>
+                        <td style={{ fontWeight: 600 }}>{order.nombreReceptor || '—'}</td>
+                        <td>{order.firmaReceptor ? '✅ Firmado' : '—'}</td>
+                        <td><span className="badge badge-liberado">ENTREGADO</span></td>
+                        <td>
+                          <button className="btn btn-ghost btn-sm"
+                            onClick={() => setExpandedDelivered(expandedDelivered === order.id ? null : order.id)}
+                            style={{ fontSize: 'var(--font-xs)', gap: 4 }}>
+                            <Eye size={13} />
+                            {expandedDelivered === order.id ? 'Cerrar' : 'Ver Detalle'}
+                          </button>
+                        </td>
+                      </tr>
+                      {expandedDelivered === order.id && (
+                        <tr key={`${order.id}-detail`}>
+                          <td colSpan={9} style={{ padding: 0 }}>
+                            <div style={{
+                              background: 'var(--bg-elevated)', padding: 'var(--space-5)',
+                              borderTop: '2px solid var(--accent-primary)', animation: 'slideDown 200ms ease-out',
+                            }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-6)' }}>
+                                {/* Timeline */}
+                                <div>
+                                  <div style={{ fontSize: 'var(--font-sm)', fontWeight: 700, marginBottom: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                                    <MapPin size={14} style={{ color: 'var(--accent-primary)' }} />
+                                    Historial de Movimientos
+                                  </div>
+                                  <div style={{ borderLeft: '2px solid var(--border-subtle)', paddingLeft: 'var(--space-4)', marginLeft: 4 }}>
+                                    {/* Dispatch event */}
+                                    <div style={{ position: 'relative', marginBottom: 'var(--space-4)' }}>
+                                      <div style={{ position: 'absolute', left: -22, top: 2, width: 10, height: 10, borderRadius: '50%', background: 'var(--info)' }} />
+                                      <div style={{ fontSize: 'var(--font-xs)', fontWeight: 600, color: 'var(--text-primary)' }}>SALIDA CEDIS</div>
+                                      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
+                                        Despachador: {order.despachador} · Vehículo: {order.vehiculoPlaca || '—'}
+                                      </div>
+                                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{order.fechaDespacho ? formatDateTime(order.fechaDespacho) : ''}</div>
+                                    </div>
+                                    {/* Tracking events */}
+                                    {order.trackingEvents?.map(ev => {
+                                      const evColor = ev.estado === 'ENTREGADO' ? 'var(--success)' : ev.estado === 'RECHAZADO' ? 'var(--danger)' : 'var(--info)';
+                                      return (
+                                        <div key={ev.id} style={{ position: 'relative', marginBottom: 'var(--space-4)' }}>
+                                          <div style={{ position: 'absolute', left: -22, top: 2, width: 10, height: 10, borderRadius: '50%', background: evColor }} />
+                                          <div style={{ fontSize: 'var(--font-xs)', fontWeight: 600, color: evColor }}>{ev.estado}</div>
+                                          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
+                                            por {ev.usuario}{ev.notas ? ` — ${ev.notas}` : ''}
+                                            {ev.nombreFirmante && <span style={{ color: 'var(--success)', fontWeight: 600 }}> · ✍️ {ev.nombreFirmante}</span>}
+                                          </div>
+                                          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{formatDateTime(ev.createdAt)}</div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Order Lines */}
+                                <div>
+                                  <div style={{ fontSize: 'var(--font-sm)', fontWeight: 700, marginBottom: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                                    <FileText size={14} style={{ color: 'var(--accent-secondary)' }} />
+                                    Líneas del Pedido
+                                  </div>
+                                  {order.lineas.length > 0 ? (
+                                    order.lineas.map(l => (
+                                      <div key={l.id} style={{
+                                        display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0',
+                                        fontSize: 'var(--font-xs)', borderBottom: '1px solid var(--border-subtle)',
+                                      }}>
+                                        <span style={{ color: 'var(--text-primary)' }}>{l.sku.descripcion}</span>
+                                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{l.cantidadSolicitada} UN</span>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Sin líneas de detalle</div>
+                                  )}
+                                  <div style={{ marginTop: 'var(--space-3)', fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
+                                    📦 Total: {order.lineas.reduce((s, l) => s + l.cantidadSolicitada, 0)} UN · {order.lineas.length} líneas
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   ))}
                 </tbody>
               </table>

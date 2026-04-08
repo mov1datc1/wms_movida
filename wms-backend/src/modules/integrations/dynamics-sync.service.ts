@@ -283,27 +283,88 @@ export class DynamicsSyncService {
       let orders: any[];
 
       if (this.dynamics.isConfigured()) {
-        const response = await this.dynamics.get<{ value: any[] }>('purchaseOrders', { '$filter': "status eq 'Open' or status eq 'Released'" });
-        orders = response.value;
+        // Fetch all purchase orders WITH lines
+        const response = await this.dynamics.get<{ value: any[] }>('purchaseOrders', { '$expand': 'purchaseOrderLines' });
+        orders = response.value.filter(o => 
+          o.status === 'Open' || o.status === 'Released'
+        );
       } else {
         orders = this.dynamics.getDemoPurchaseOrders();
+      }
+
+      // ── Persist as InboundOrders with lines ──
+      let created = 0, skipped = 0, linesCreated = 0;
+
+      for (const po of orders) {
+        const bcNumber = po.number; // e.g. "106024"
+
+        // Check if already exists
+        const existing = await this.prisma.inboundOrder.findUnique({
+          where: { numeroDynamics: bcNumber },
+        });
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        // Create InboundOrder
+        const newOrder = await this.prisma.inboundOrder.create({
+          data: {
+            numeroDynamics: bcNumber,
+            proveedorNombre: po.vendorName || `Vendor-${po.vendorNumber}`,
+            proveedorId: po.vendorNumber || null,
+            fechaOrden: new Date(po.orderDate || Date.now()),
+            fechaEsperada: po.expectedReceiptDate ? new Date(po.expectedReceiptDate) : null,
+            estado: 'PENDIENTE',
+          },
+        });
+
+        // Create lines from BC purchaseOrderLines
+        const bcLines = po.purchaseOrderLines || [];
+        for (const line of bcLines) {
+          const itemNumber = line.lineObjectNumber || line.itemId;
+          if (!itemNumber || line.lineType !== 'Item') continue;
+
+          const sku = await this.prisma.skuMaster.findUnique({
+            where: { codigoDynamics: itemNumber },
+          });
+
+          if (sku) {
+            await this.prisma.inboundOrderLine.create({
+              data: {
+                inboundOrderId: newOrder.id,
+                skuId: sku.id,
+                cantidadEsperada: line.quantity || 0,
+                cantidadRecibida: 0,
+                estado: 'PENDIENTE',
+              },
+            });
+            linesCreated++;
+          } else {
+            this.logger.warn(`  ⚠️ SKU not found for PO item: ${itemNumber}`);
+          }
+        }
+
+        created++;
+        this.logger.log(`✅ Created InboundOrder #${bcNumber} — ${po.vendorName} — ${bcLines.length} lines`);
       }
 
       const log = await this.prisma.syncLog.create({
         data: {
           tipo: 'INBOUND',
           entidad: 'purchaseOrders',
-          registros: orders.length,
+          registros: created,
           estado: 'SUCCESS',
-          detalle: `${orders.length} OC pendientes: ${orders.map(o => o.number).join(', ')}`,
+          detalle: `${orders.length} OC BC (${created} nuevas, ${skipped} existentes, ${linesCreated} líneas). Nos: ${orders.map(o => o.number).join(', ')}`,
           usuario,
           duracionMs: Date.now() - start,
         },
       });
 
-      this.logger.log(`✅ PO sync: ${orders.length} purchase orders`);
+      this.logger.log(`✅ PO sync: ${orders.length} total, ${created} created, ${linesCreated} lines`);
       return log;
     } catch (error: any) {
+      this.logger.error(`❌ PO sync failed: ${error.message}`);
       const log = await this.prisma.syncLog.create({
         data: {
           tipo: 'INBOUND',
@@ -319,7 +380,7 @@ export class DynamicsSyncService {
   }
 
   // =====================================================
-  //  INBOUND: Sales Orders → Outbound Order prep
+  //  INBOUND: Sales Orders → OutboundOrder (real persist)
   // =====================================================
 
   async syncSalesOrders(usuario?: string): Promise<any> {
@@ -328,27 +389,109 @@ export class DynamicsSyncService {
       let orders: any[];
 
       if (this.dynamics.isConfigured()) {
-        const response = await this.dynamics.get<{ value: any[] }>('salesOrders', { '$filter': "status eq 'Open' or status eq 'Released'" });
-        orders = response.value;
+        // Fetch all sales orders WITH lines (no filter — BC API rejects OData status filters)
+        const response = await this.dynamics.get<{ value: any[] }>('salesOrders', { '$expand': 'salesOrderLines' });
+        // Filter in-code: only Open or Released (exclude Draft)
+        orders = response.value.filter(o => 
+          o.status === 'Open' || o.status === 'Released'
+        );
       } else {
         orders = this.dynamics.getDemoSalesOrders();
+      }
+
+      // ── Persist sales orders as OutboundOrders with lines ──
+      let created = 0, skipped = 0, linesCreated = 0;
+
+      for (const so of orders) {
+        const bcNumber = so.number; // e.g. "101021"
+
+        // Check if already exists in WMS
+        const existing = await this.prisma.outboundOrder.findFirst({
+          where: { origenDynamics: bcNumber },
+        });
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        // Find matching restaurante by BC customer name
+        let restaurante = await this.prisma.restaurante.findFirst({
+          where: { nombre: { contains: so.customerName || so.sellToCustomerName || '', mode: 'insensitive' } },
+        });
+
+        // If no match, create the restaurante from BC customer data
+        if (!restaurante) {
+          restaurante = await this.prisma.restaurante.create({
+            data: {
+              nombre: so.customerName || so.sellToCustomerName || `BC-${so.customerNumber || so.sellToCustomerNumber}`,
+              zona: 'DYNAMICS',
+              activo: true,
+            },
+          });
+          this.logger.log(`📦 Created restaurante from BC customer: ${restaurante.nombre}`);
+        }
+
+        // Create OutboundOrder with the real BC number
+        const newOrder = await this.prisma.outboundOrder.create({
+          data: {
+            restauranteId: restaurante.id,
+            origenDynamics: bcNumber,      // Real BC order number: "101021"
+            prioridad: so.status === 'Released' ? 1 : 3,
+            fechaCompromiso: so.requestedDeliveryDate 
+              ? new Date(so.requestedDeliveryDate) 
+              : new Date(Date.now() + 7 * 24 * 3600 * 1000), // +7 days default
+            estado: 'PENDIENTE',
+          },
+        });
+
+        // ── Create order lines from BC salesOrderLines ──
+        const bcLines = so.salesOrderLines || [];
+        for (const line of bcLines) {
+          const itemNumber = line.lineObjectNumber || line.itemId;
+          if (!itemNumber || line.lineType !== 'Item') continue;
+
+          // Match BC item to WMS SkuMaster by codigoDynamics
+          const sku = await this.prisma.skuMaster.findUnique({
+            where: { codigoDynamics: itemNumber },
+          });
+
+          if (sku) {
+            await this.prisma.outboundOrderLine.create({
+              data: {
+                orderId: newOrder.id,
+                skuId: sku.id,
+                cantidadSolicitada: line.quantity || 0,
+                cantidadAsignada: 0,
+                reglaFefoAplicada: true,
+              },
+            });
+            linesCreated++;
+            this.logger.log(`  📋 Line: ${sku.descripcion} x ${line.quantity}`);
+          } else {
+            this.logger.warn(`  ⚠️ SKU not found for BC item: ${itemNumber}`);
+          }
+        }
+
+        created++;
+        this.logger.log(`✅ Created OutboundOrder #${bcNumber} with ${bcLines.length} lines → ${restaurante.nombre}`);
       }
 
       const log = await this.prisma.syncLog.create({
         data: {
           tipo: 'INBOUND',
           entidad: 'salesOrders',
-          registros: orders.length,
+          registros: created,
           estado: 'SUCCESS',
-          detalle: `${orders.length} pedidos pendientes: ${orders.map(o => o.number).join(', ')}`,
+          detalle: `${orders.length} pedidos BC (${created} nuevos, ${skipped} existentes). Nos: ${orders.map(o => o.number).join(', ')}`,
           usuario,
           duracionMs: Date.now() - start,
         },
       });
 
-      this.logger.log(`✅ SO sync: ${orders.length} sales orders`);
+      this.logger.log(`✅ SO sync: ${orders.length} total, ${created} created, ${skipped} skipped`);
       return log;
     } catch (error: any) {
+      this.logger.error(`❌ SO sync failed: ${error.message}`);
       const log = await this.prisma.syncLog.create({
         data: {
           tipo: 'INBOUND',

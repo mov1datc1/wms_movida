@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Package, MapPin, Database,
   RefreshCw, Clock, ScanLine, Truck, ShieldCheck, Route,
-  ArrowDownToLine, Settings, LogOut, Tag
+  ArrowDownToLine, Settings, LogOut, Tag, ClipboardCheck
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -40,6 +40,7 @@ const navSections: NavSection[] = [
       { to: '/recepcion', icon: <ArrowDownToLine size={17} />, label: 'Recepción', moduloKey: 'recepcion' },
       { to: '/picking', icon: <ScanLine size={17} />, label: 'Picking FEFO', moduloKey: 'picking' },
       { to: '/despacho', icon: <Truck size={17} />, label: 'Despacho', moduloKey: 'despacho' },
+      { to: '/conteo-ciclico', icon: <ClipboardCheck size={17} />, label: 'Conteo Cíclico', moduloKey: 'inventario' },
       { to: '/etiquetado', icon: <Tag size={17} />, label: 'Etiquetado', moduloKey: 'recepcion' },
     ],
   },
