@@ -1,9 +1,0 @@
-{
-  "buildCommand": "cd wms-frontend && npm install && npm run build",
-  "outputDirectory": "wms-frontend/dist",
-  "installCommand": "cd wms-frontend && npm install",
-  "framework": "vite",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
