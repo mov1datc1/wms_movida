@@ -288,11 +288,87 @@ export class OperationsController {
 
   // ============ DISPATCH TRACKING (despachador updates) ============
   @Post('orders/:id/dispatch')
-  @ApiOperation({ summary: 'Confirmar despacho de orden (despachador)' })
+  @ApiOperation({ summary: 'Confirmar despacho de orden (despachador) — descuenta inventario y libera ubicaciones' })
   async dispatchOrder(
     @Param('id') id: string,
     @Body() data: { despachador: string; vehiculoPlaca?: string; notas?: string },
   ) {
+    // Get order with lines
+    const fullOrder = await this.prisma.outboundOrder.findUnique({
+      where: { id },
+      include: { lineas: { include: { sku: true } }, restaurante: true },
+    });
+    if (!fullOrder) throw new HttpException('Orden no encontrada', HttpStatus.NOT_FOUND);
+
+    // ── Decrement inventory per line using FEFO ──
+    for (const line of fullOrder.lineas) {
+      let remaining = line.cantidadSolicitada;
+
+      // Get available lots for this SKU, ordered by expiration (FEFO)
+      const lots = await this.prisma.lotInventory.findMany({
+        where: { skuId: line.skuId, cantidadDisponible: { gt: 0 }, estadoCalidad: 'LIBERADO' },
+        orderBy: { fechaVencimiento: 'asc' },
+        include: { ubicacion: true },
+      });
+
+      for (const lot of lots) {
+        if (remaining <= 0) break;
+
+        const toTake = Math.min(remaining, lot.cantidadDisponible);
+        remaining -= toTake;
+
+        // Decrement lot inventory
+        await this.prisma.lotInventory.update({
+          where: { id: lot.id },
+          data: { cantidadDisponible: { decrement: toTake } },
+        });
+
+        // If lot is now empty, free the location
+        if (toTake >= lot.cantidadDisponible && lot.ubicacionId) {
+          // Check if location has other lots with stock
+          const otherLots = await this.prisma.lotInventory.count({
+            where: { ubicacionId: lot.ubicacionId, cantidadDisponible: { gt: 0 }, id: { not: lot.id } },
+          });
+
+          if (otherLots === 0) {
+            await this.prisma.location.update({
+              where: { id: lot.ubicacionId },
+              data: { ocupacion: 0, estado: 'DISPONIBLE' },
+            });
+          } else {
+            // Decrement occupancy
+            await this.prisma.location.update({
+              where: { id: lot.ubicacionId },
+              data: { ocupacion: { decrement: 1 } },
+            });
+          }
+        }
+
+        // Create SALIDA movement for traceability
+        await this.prisma.inventoryMovement.create({
+          data: {
+            tipoMovimiento: 'SALIDA',
+            skuId: line.skuId,
+            lotId: lot.id,
+            fromLocationId: lot.ubicacionId || undefined,
+            cantidad: toTake,
+            usuario: data.despachador,
+            motivo: `Despacho orden #${fullOrder.origenDynamics || id} → ${fullOrder.restaurante.nombre}`,
+          },
+        });
+
+        this.audit(data.despachador, 'SALIDA_INVENTARIO', 'LotInventory', lot.id,
+          `SKU: ${line.sku.descripcion}, Qty: -${toTake}, Lote: ${lot.lote}`);
+      }
+
+      // Update the line's assigned quantity
+      await this.prisma.outboundOrderLine.update({
+        where: { id: line.id },
+        data: { cantidadAsignada: line.cantidadSolicitada - remaining },
+      });
+    }
+
+    // ── Update order status ──
     const order = await this.prisma.outboundOrder.update({
       where: { id },
       data: {
@@ -474,6 +550,25 @@ export class OperationsController {
 
       await this.audit(data.usuario, 'TRANSFERENCIA', 'LotInventory', data.lotId,
         `Cant: ${data.cantidad}, De: ${lot.ubicacion?.codigo || 'N/A'} → ${toLocation.codigo}`);
+
+      // ── Update location occupancy ──
+      // Decrement origin location
+      if (data.fromLocationId) {
+        const remainingLotsAtOrigin = await this.prisma.lotInventory.count({
+          where: { ubicacionId: data.fromLocationId, cantidadDisponible: { gt: 0 } },
+        });
+        if (remainingLotsAtOrigin === 0) {
+          await this.prisma.location.update({
+            where: { id: data.fromLocationId },
+            data: { ocupacion: 0, estado: 'DISPONIBLE' },
+          });
+        }
+      }
+      // Increment destination location
+      await this.prisma.location.update({
+        where: { id: data.toLocationId },
+        data: { ocupacion: { increment: 1 }, estado: 'OCUPADO' },
+      });
 
       return { success: true, movement };
     } catch (error) {
