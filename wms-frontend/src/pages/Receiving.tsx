@@ -282,7 +282,7 @@ export function Receiving() {
       </div>
 
       {activeTab === 'orders' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: 'var(--space-6)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 400px) 1fr', gap: 'var(--space-4)' }}>
           {/* Orders List */}
           <div className="glass-card animate-slide-up" style={{ overflow: 'hidden' }}>
             {/* Filters */}
@@ -448,7 +448,7 @@ export function Receiving() {
                             💡 Pendiente: <strong>{remaining} {line.sku.uomBase}</strong> · Ubicación sugerida: <code style={{ color: 'var(--accent-primary)' }}>{sugLoc?.codigo || 'RECIBO-01'}</code>
                           </div>
 
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
                             <div className="form-group" style={{ marginBottom: 0 }}>
                               <label className="form-label" style={{ fontSize: 11 }}>Lote *</label>
                               <input type="text" className="form-input" placeholder="Ej: L260401-A"
@@ -490,7 +490,7 @@ export function Receiving() {
                             </div>
                           </div>
 
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
                             <div className="form-group" style={{ marginBottom: 0 }}>
                               <label className="form-label" style={{ fontSize: 11 }}>Tipo HU</label>
                               <select className="form-select" value={receiveForm.tipoHu}

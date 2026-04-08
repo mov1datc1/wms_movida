@@ -1334,6 +1334,159 @@ tbody td {
   .stat-card-value {
     font-size: var(--font-xl);
   }
+
+  /* --- Stat cards: centered, premium look --- */
+  .stat-card {
+    text-align: center;
+    padding: var(--space-3) var(--space-2);
+  }
+  .stat-card-label {
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  .stat-card-header {
+    justify-content: center;
+    margin-bottom: var(--space-2);
+  }
+  .stat-card-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* --- Page header compact --- */
+  .page-header {
+    margin-bottom: var(--space-3);
+  }
+  .page-header h1 {
+    font-size: 22px;
+    letter-spacing: -0.02em;
+  }
+
+  /* --- Tabs: horizontal scroll --- */
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding-bottom: 0;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-xs);
+  }
+
+  /* --- Button: full-width on mobile when in a flex row --- */
+  .btn {
+    font-size: var(--font-xs);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  /* --- Glass cards: better mobile shadows --- */
+  .glass-card {
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
+  }
+
+  /* --- Dispatch/Receiving: Stack card items vertically --- */
+  /* Dispatch flexbox stacks vertically */
+  .glass-card > div:first-child {
+    flex-wrap: wrap;
+  }
+
+  /* Form inputs: taller touch targets */
+  .form-input,
+  .form-select {
+    padding: var(--space-3);
+    font-size: 16px; /* prevents iOS zoom on focus */
+    min-height: 44px;
+  }
+
+  /* Filter bar: wrap on mobile */
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filter-bar .form-select,
+  .filter-bar .form-input {
+    width: 100%;
+    min-width: auto;
+  }
+
+  /* Charts grid single column */
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Alert items: compact */
+  .alert-item {
+    padding: var(--space-3);
+    gap: var(--space-3);
+  }
+
+  /* Modal: full-width on mobile */
+  .modal-content {
+    width: 95%;
+    max-height: 85vh;
+    padding: var(--space-5);
+    border-radius: var(--radius-lg);
+  }
+  .modal-title {
+    font-size: var(--font-lg);
+  }
+
+  /* Location grid smaller */
+  .warehouse-grid {
+    grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+    gap: 4px;
+    padding: var(--space-3);
+  }
+  .location-cell {
+    font-size: 9px;
+  }
+
+  /* Progress bar thicker for touch */
+  .progress-bar {
+    height: 8px;
+  }
+
+  /* Picking card compact */
+  .picking-card {
+    padding: var(--space-4);
+  }
+
+  /* Badge smaller */
+  .badge {
+    padding: 2px 8px;
+    font-size: 10px;
+  }
+
+  /* Section titles */
+  h2 {
+    font-size: var(--font-base) !important;
+  }
+
+  /* Table search */
+  .table-search input {
+    width: 120px;
+  }
+
+  /* Stack multi-column grids vertically */
+  [style*="gridTemplateColumns: '400px"] ,
+  [style*="gridTemplateColumns: 'minmax(0, 400px)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Cycle count panel: stack on mobile */
+  [style*="gridTemplateColumns: panelCollapsed"] ,
+  [style*="48px 1fr"] ,
+  [style*="320px 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 /* =========================================================

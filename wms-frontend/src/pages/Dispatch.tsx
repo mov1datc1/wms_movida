@@ -201,45 +201,45 @@ export function Dispatch() {
         <div style={{ marginBottom: 'var(--space-8)' }}>
           <h2 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, marginBottom: 'var(--space-4)' }}>🚛 Listos para Despachar</h2>
           {consolidatedOrders.map(order => (
-            <div key={order.id} className="glass-card animate-slide-up" style={{ padding: 'var(--space-5)', marginBottom: 'var(--space-4)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-                  <div style={{ width: 48, height: 48, borderRadius: 'var(--radius-md)', background: 'var(--accent-secondary-soft)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Truck size={24} style={{ color: 'var(--accent-secondary)' }} />
+            <div key={order.id} className="glass-card animate-slide-up" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flex: '1 1 200px', minWidth: 0 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 'var(--radius-md)', background: 'var(--accent-secondary-soft)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Truck size={20} style={{ color: 'var(--accent-secondary)' }} />
                   </div>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{order.origenDynamics ? `#${order.origenDynamics} — ` : ''}{order.restaurante.nombre}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)' }}>{order.origenDynamics ? `#${order.origenDynamics} — ` : ''}{order.restaurante.nombre}</div>
                     <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
-                      {order.lineas.length} líneas · Compromiso: {formatDate(order.fechaCompromiso)}
+                      {order.lineas.length} líneas · {formatDate(order.fechaCompromiso)}
                     </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', gap: 'var(--space-2)', flexShrink: 0 }}>
                   <button className="btn btn-secondary btn-sm" onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}>
                     <FileText size={14} /> Detalle <ChevronDown size={14} />
                   </button>
-                  <button className="btn btn-primary" onClick={() => setDispatchingId(order.id)}>
-                    <Truck size={16} /> Despachar
+                  <button className="btn btn-primary btn-sm" onClick={() => setDispatchingId(order.id)}>
+                    <Truck size={14} /> Despachar
                   </button>
                 </div>
               </div>
 
               {/* Dispatch form */}
               {dispatchingId === order.id && (
-                <div style={{ marginTop: 'var(--space-5)', paddingTop: 'var(--space-5)', borderTop: '1px solid var(--border-subtle)',
-                  display: 'flex', gap: 'var(--space-4)', alignItems: 'flex-end', animation: 'slideDown 200ms ease-out' }}>
-                  <div className="form-group" style={{ flex: 1 }}>
+                <div style={{ marginTop: 'var(--space-4)', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--border-subtle)',
+                  display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', alignItems: 'flex-end', animation: 'slideDown 200ms ease-out' }}>
+                  <div className="form-group" style={{ flex: '1 1 140px', marginBottom: 0 }}>
                     <label className="form-label">Despachador</label>
-                    <input type="text" className="form-input" placeholder="Nombre del despachador"
+                    <input type="text" className="form-input" placeholder="Nombre"
                       value={dispatchForm.despachador} onChange={e => setDispatchForm(f => ({ ...f, despachador: e.target.value }))} />
                   </div>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Placa del Vehículo</label>
+                  <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
+                    <label className="form-label">Placa Vehículo</label>
                     <input type="text" className="form-input" placeholder="P-123ABC"
                       value={dispatchForm.vehiculoPlaca} onChange={e => setDispatchForm(f => ({ ...f, vehiculoPlaca: e.target.value }))} />
                   </div>
-                  <button className="btn btn-primary" onClick={() => handleDispatch(order.id)} disabled={!dispatchForm.despachador}>
+                  <button className="btn btn-primary" style={{ flex: '1 1 100%' }} onClick={() => handleDispatch(order.id)} disabled={!dispatchForm.despachador}>
                     <CheckCircle2 size={16} /> Confirmar Despacho
                   </button>
                 </div>
@@ -267,15 +267,18 @@ export function Dispatch() {
         <div style={{ marginBottom: 'var(--space-8)' }}>
           <h2 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, marginBottom: 'var(--space-4)' }}>🚚 En Ruta — Seguimiento de Entrega</h2>
           {dispatchedOrders.map(order => (
-            <div key={order.id} className="glass-card" style={{ padding: 'var(--space-5)', marginBottom: 'var(--space-4)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>{order.origenDynamics ? `#${order.origenDynamics} — ` : ''}{order.restaurante.nombre}</div>
+            <div key={order.id} className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)' }}>{order.origenDynamics ? `#${order.origenDynamics} — ` : ''}{order.restaurante.nombre}</div>
+                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+                    Despachador: {order.despachador || '—'} · Vehículo: {order.vehiculoPlaca || '—'}
+                  </div>
                   <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
-                    Despachador: {order.despachador || '—'} · Vehículo: {order.vehiculoPlaca || '—'} · Salida: {order.fechaDespacho ? formatDateTime(order.fechaDespacho) : '—'}
+                    Salida: {order.fechaDespacho ? formatDateTime(order.fechaDespacho) : '—'}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexShrink: 0 }}>
                   <span className="badge" style={{ background: 'var(--info-soft)', color: 'var(--info)' }}>
                     {order.estadoEntrega || 'EN_RUTA'}
                   </span>
