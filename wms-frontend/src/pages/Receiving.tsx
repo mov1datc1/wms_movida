@@ -96,6 +96,7 @@ export function Receiving() {
     tipoHu: 'PALLET',
     ubicacionId: '',
     notas: '',
+    sinVencimiento: false,
   });
 
   useEffect(() => {
@@ -169,7 +170,7 @@ export function Receiving() {
         body: JSON.stringify({
           skuId: line.skuId,
           lote: receiveForm.lote,
-          fechaVencimiento: receiveForm.fechaVencimiento || undefined,
+          fechaVencimiento: receiveForm.sinVencimiento ? '2099-12-31' : (receiveForm.fechaVencimiento || undefined),
           cantidad: qty,
           proveedor: selectedOrder?.proveedorNombre || 'BC Vendor',
           tipoHu: receiveForm.tipoHu,
@@ -185,7 +186,7 @@ export function Receiving() {
       const result = await res.json();
 
       setShowSuccess(`✅ Recibido: ${line.sku.descripcion} × ${qty} — Lote: ${receiveForm.lote}, HU: ${result.handlingUnit.codigo}, Ubicación: ${sugLoc?.codigo || '?'}`);
-      setReceiveForm({ lote: '', fechaVencimiento: '', cantidad: '', tipoHu: 'PALLET', ubicacionId: '', notas: '' });
+      setReceiveForm({ lote: '', fechaVencimiento: '', cantidad: '', tipoHu: 'PALLET', ubicacionId: '', notas: '', sinVencimiento: false });
       setExpandedLine(null);
       setTimeout(() => setShowSuccess(null), 5000);
 
@@ -461,10 +462,31 @@ export function Receiving() {
                                 style={{ fontSize: 'var(--font-xs)' }} />
                             </div>
                             <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label className="form-label" style={{ fontSize: 11 }}>Vencimiento</label>
-                              <input type="date" className="form-input"
-                                value={receiveForm.fechaVencimiento} onChange={e => setReceiveForm(f => ({ ...f, fechaVencimiento: e.target.value }))}
-                                style={{ fontSize: 'var(--font-xs)' }} />
+                              <label className="form-label" style={{ fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                Vencimiento
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 500, cursor: 'pointer', color: receiveForm.sinVencimiento ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
+                                  <div onClick={() => setReceiveForm(f => ({ ...f, sinVencimiento: !f.sinVencimiento, fechaVencimiento: !f.sinVencimiento ? '2099-12-31' : '' }))}
+                                    style={{
+                                      width: 32, height: 18, borderRadius: 9, background: receiveForm.sinVencimiento ? 'var(--accent-primary)' : 'var(--border-default)',
+                                      position: 'relative', cursor: 'pointer', transition: 'background 0.2s'
+                                    }}>
+                                    <div style={{
+                                      width: 14, height: 14, borderRadius: '50%', background: '#fff', position: 'absolute', top: 2,
+                                      left: receiveForm.sinVencimiento ? 16 : 2, transition: 'left 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                    }} />
+                                  </div>
+                                  N/A
+                                </label>
+                              </label>
+                              {receiveForm.sinVencimiento ? (
+                                <div className="form-input" style={{ fontSize: 'var(--font-xs)', background: 'var(--accent-primary-soft)', color: 'var(--accent-primary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  ♾️ Sin vencimiento
+                                </div>
+                              ) : (
+                                <input type="date" className="form-input"
+                                  value={receiveForm.fechaVencimiento} onChange={e => setReceiveForm(f => ({ ...f, fechaVencimiento: e.target.value }))}
+                                  style={{ fontSize: 'var(--font-xs)' }} />
+                              )}
                             </div>
                           </div>
 

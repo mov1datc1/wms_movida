@@ -695,15 +695,31 @@ export class OperationsController {
     // Optionally apply adjustments to inventory
     if (body.aplicarAjustes) {
       for (const line of cc.lineas) {
-        if (line.discrepancia && line.discrepancia !== 0) {
-          // Create adjustment movement
+        if (line.discrepancia && line.discrepancia !== 0 && line.cantidadFisica != null) {
+          // Find lots for this SKU and adjust quantity
+          const lots = await this.prisma.lotInventory.findMany({
+            where: { skuId: line.skuId, cantidadDisponible: { gt: 0 } },
+            orderBy: { fechaVencimiento: 'asc' }, // FEFO order
+          });
+
+          if (lots.length > 0) {
+            // Simple strategy: adjust the first lot's available qty
+            const firstLot = lots[0];
+            const newQty = Math.max(0, firstLot.cantidadDisponible + line.discrepancia);
+            await this.prisma.lotInventory.update({
+              where: { id: firstLot.id },
+              data: { cantidadDisponible: newQty },
+            });
+          }
+
+          // Create adjustment movement for traceability
           await this.prisma.inventoryMovement.create({
             data: {
               tipoMovimiento: 'AJUSTE',
               skuId: line.skuId,
               cantidad: Math.abs(line.discrepancia),
               usuario: body.usuario,
-              motivo: `Ajuste conteo cíclico ${cc.codigo}: ${line.discrepancia > 0 ? 'Sobrante' : 'Faltante'} ${Math.abs(line.discrepancia)} UN`,
+              motivo: `Ajuste conteo cíclico ${cc.codigo}: ${line.discrepancia > 0 ? 'Sobrante +' : 'Faltante -'}${Math.abs(line.discrepancia)} UN (Sistema: ${line.cantidadSistema}, Físico: ${line.cantidadFisica})`,
               almacenId: cc.almacenId,
             },
           });

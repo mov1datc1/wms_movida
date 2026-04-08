@@ -58,6 +58,7 @@ export function CycleCountPage() {
   const [countingLine, setCountingLine] = useState<string | null>(null);
   const [countValue, setCountValue] = useState('');
   const [scanInput, setScanInput] = useState('');
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const { selectedWarehouseId } = useWarehouse();
 
   const [createForm, setCreateForm] = useState({
@@ -267,16 +268,17 @@ export function CycleCountPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 'var(--space-6)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: panelCollapsed ? '48px 1fr' : '320px 1fr', gap: 'var(--space-4)', transition: 'grid-template-columns 0.3s ease' }}>
         {/* Counts List */}
-        <div className="glass-card animate-slide-up" style={{ overflow: 'hidden' }}>
-          <div className="data-table-header">
-            <div className="data-table-title">📋 Conteos ({counts.length})</div>
+        <div className="glass-card animate-slide-up" style={{ overflow: 'hidden', minWidth: 0 }}>
+          <div className="data-table-header" style={{ cursor: 'pointer' }} onClick={() => setPanelCollapsed(!panelCollapsed)}>
+            <div className="data-table-title">{panelCollapsed ? '📋' : `📋 Conteos (${counts.length})`}</div>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{panelCollapsed ? '▶' : '◀'}</span>
           </div>
-          {counts.length === 0 ? (
+          {!panelCollapsed && (counts.length === 0 ? (
             <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>
               <ClipboardCheck size={36} style={{ margin: '0 auto var(--space-3)', opacity: 0.3 }} />
-              <div>Sin conteos cíclicos programados</div>
+              <div>Sin conteos programados</div>
             </div>
           ) : (
             counts.map(cc => {
@@ -286,9 +288,9 @@ export function CycleCountPage() {
                 <div key={cc.id} className="alert-item"
                   style={{ cursor: 'pointer', borderLeft: selectedId === cc.id ? '3px solid var(--accent-primary)' : '3px solid transparent',
                     background: selectedId === cc.id ? 'var(--accent-primary-soft)' : undefined }}
-                  onClick={() => setSelectedId(cc.id)}>
+                  onClick={() => { setSelectedId(cc.id); setPanelCollapsed(true); }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 2 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 2, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 'var(--font-sm)', fontWeight: 700 }}>{cc.codigo}</span>
                       <span style={{ padding: '1px 8px', borderRadius: 'var(--radius-full)', fontSize: 10, fontWeight: 600, background: st.bg, color: st.color }}>{cc.estado}</span>
                       <span style={{ fontSize: 10, fontWeight: 600, background: cc.clasificacion === 'A' ? '#FEE2E2' : cc.clasificacion === 'B' ? '#FEF9C3' : '#DCFCE7',
@@ -297,13 +299,13 @@ export function CycleCountPage() {
                     </div>
                     <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{cc.nombre}</div>
                     <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
-                      {counted}/{cc.lineas.length} contados · {cc.tipo} · {new Date(cc.fechaProgramada).toLocaleDateString('es-GT')}
+                      {counted}/{cc.lineas.length} contados · {cc.tipo}
                     </div>
                   </div>
                 </div>
               );
             })
-          )}
+          ))}
         </div>
 
         {/* Detail */}
@@ -386,19 +388,19 @@ export function CycleCountPage() {
                     filename={`conteo_${selected.codigo}`}
                   />
                 </div>
-                <div className="data-table-wrapper">
+                <div className="data-table-wrapper" style={{ overflowX: 'auto' }}>
                   <div className="data-table-scroll">
-                    <table>
+                    <table style={{ minWidth: 700 }}>
                       <thead>
                         <tr>
-                          <th>SKU</th>
-                          <th>Producto</th>
+                          <th style={{ minWidth: 90 }}>SKU</th>
+                          <th style={{ minWidth: 140 }}>Producto</th>
                           {selected.tipo === 'LOTE' && <th>Lote</th>}
-                          <th style={{ textAlign: 'right' }}>Sistema</th>
-                          <th style={{ textAlign: 'right' }}>Físico</th>
-                          <th style={{ textAlign: 'right' }}>Diff</th>
-                          <th>Estado</th>
-                          <th>Acción</th>
+                          <th style={{ textAlign: 'right', minWidth: 65 }}>Sistema</th>
+                          <th style={{ textAlign: 'right', minWidth: 70 }}>Físico</th>
+                          <th style={{ textAlign: 'right', minWidth: 55 }}>Diff</th>
+                          <th style={{ minWidth: 75 }}>Estado</th>
+                          <th style={{ minWidth: 90, position: 'sticky', right: 0, background: 'var(--bg-secondary)', zIndex: 1 }}>Acción</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -431,19 +433,19 @@ export function CycleCountPage() {
                                   color: line.estado === 'CONTADO' ? '#16A34A' : line.estado === 'AJUSTADO' ? '#8B5CF6' : '#CA8A04',
                                 }}>{line.estado}</span>
                               </td>
-                              <td>
+                              <td style={{ position: 'sticky', right: 0, background: hasDisc ? '#FEF2F2' : 'var(--bg-primary)', zIndex: 1 }}>
                                 {line.estado === 'PENDIENTE' && selected.estado === 'EN_PROGRESO' && (
                                   isEditing ? (
                                     <div style={{ display: 'flex', gap: 4 }}>
-                                      <button className="btn btn-primary btn-sm" style={{ padding: '2px 8px', fontSize: 10 }}
+                                      <button className="btn btn-primary btn-sm" style={{ padding: '4px 10px', fontSize: 11 }}
                                         onClick={() => handleRecordCount(selected.id, line.id)} disabled={submitting}>
                                         <CheckCircle2 size={12} /> OK
                                       </button>
-                                      <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 10 }}
+                                      <button className="btn btn-ghost btn-sm" style={{ padding: '4px 6px', fontSize: 11 }}
                                         onClick={() => setCountingLine(null)}><X size={12} /></button>
                                     </div>
                                   ) : (
-                                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '2px 8px' }}
+                                    <button className="btn btn-primary btn-sm" style={{ fontSize: 11, padding: '4px 10px' }}
                                       onClick={() => { setCountingLine(line.id); setCountValue(String(line.cantidadSistema)); }}>
                                       <Hash size={12} /> Contar
                                     </button>
